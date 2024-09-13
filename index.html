@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walking Sound Fading Example</title>
+    <style>
+        #controls {
+            margin: 20px;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #steps {
+            font-size: 1.5em;
+            margin-top: 20px;
+        }
+        #log {
+            white-space: pre-wrap;
+            background: #f0f0f0;
+            padding: 10px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Walking Sound Fading (Step-Driven)</h1>
+    <div id="controls">
+        <button id="startButton">Start Audio</button><br><br>
+        <p>Player Position (X coordinate): <span id="playerPosition">0</span></p>
+        <p id="steps">Steps: 0</p>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        // Set up Audio Context
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Function to log messages
+        function log(message) {
+            console.log(message);
+            const logDiv = document.getElementById('log');
+            logDiv.textContent += message + '\n';
+        }
+
+        // Function to load sound
+        async function loadSound(url) {
+            log(`Loading sound from: ${url}`);
+            try {
+                const response = await fetch(url);
+                const arrayBuffer = await response.arrayBuffer();
+                const decodedData = await audioContext.decodeAudioData(arrayBuffer);
+                log(`Sound loaded successfully: ${url}`);
+                return decodedData;
+            } catch (error) {
+                log(`Error loading sound from ${url}: ${error}`);
+                return null;
+            }
+        }
+
+        // Sound class to manage each sound source
+        class Sound {
+            constructor(buffer, position, radius) {
+                this.buffer = buffer;
+                this.position = position;
+                this.radius = radius;
+                this.source = null;
+                this.gainNode = audioContext.createGain();
+                this.gainNode.connect(audioContext.destination);
+            }
+
+            // Start playing the sound
+            play() {
+                if (!this.buffer) {
+                    log('Buffer is null, cannot play sound.');
+                    return;
+                }
+
+                if (this.source) return; // Prevent multiple starts
+
+                this.source = audioContext.createBufferSource();
+                this.source.buffer = this.buffer;
+                this.source.loop = true; // Loop sound if needed
+                this.source.connect(this.gainNode);
+                this.source.start();
+                log(`Playing sound at position (${this.position.x}, ${this.position.y})`);
+            }
+
+            // Update gain based on player distance
+            updateGain(playerPosition) {
+                const distance = Math.abs(playerPosition.x - this.position.x);
+
+                let gainValue = 0;
+                if (distance < this.radius) {
+                    gainValue = 1 - (distance / this.radius); // Linear fade
+                }
+
+                // Smoothly adjust the gain
+                this.gainNode.gain.setValueAtTime(gainValue, audioContext.currentTime);
+                log(`Updating gain for sound at (${this.position.x}), distance: ${distance.toFixed(2)}, gain: ${gainValue.toFixed(2)}`);
+            }
+
+            // Stop the sound
+            stop() {
+                if (this.source) {
+                    this.source.stop();
+                    this.source.disconnect();
+                    this.source = null;
+                    log(`Stopped sound at position (${this.position.x}, ${this.position.y})`);
+                }
+            }
+        }
+
+        // Function to initialize and play all sounds
+        async function initializeSounds(soundConfigs) {
+            const sounds = [];
+
+            for (const config of soundConfigs) {
+                const buffer = await loadSound(config.url);
+                const sound = new Sound(buffer, config.position, config.radius);
+                sound.play();
+                sound.updateGain(playerPosition);
+                sounds.push(sound);
+            }
+
+            return sounds;
+        }
+
+        // Update all sounds based on player position
+        function updateSounds(sounds, playerPosition) {
+            sounds.forEach(sound => sound.updateGain(playerPosition));
+        }
+
+        // Example usage
+        let playerPosition = { x: 0 }; // Initial player position
+        let sounds = [];
+        let stepCount = 0;
+        let lastAcceleration = { x: 0, y: 0, z: 0 };
+        const stepThreshold = 1.6; // Threshold for detecting steps (may need adjustment based on device)
+
+        document.getElementById('startButton').addEventListener('click', async () => {
+            // Resume audio context to handle autoplay restrictions
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+                log('Audio context resumed.');
+            }
+
+            const soundConfigs = [
+                { url: 'https://microscopicwindow.github.io/Audio/Jungle01.mp3', position: { x: 335 }, radius: 200 },
+                { url: 'https://microscopicwindow.github.io/Audio/Hounds02.mp3', position: { x: 635 }, radius: 150 },
+                { url: 'https://microscopicwindow.github.io/Audio/City01.mp3', position: { x: 935 }, radius: 200 },
+                { url: 'https://microscopicwindow.github.io/Audio/mob01.mp3', position: { x: 1314 }, radius: 150 }
+            ];
+
+            sounds = await initializeSounds(soundConfigs);
+            if (sounds.length > 0) {
+                log('All sounds initialized.');
+            } else {
+                log('No sounds initialized. Check sound URLs and loading process.');
+            }
+            updatePlayerPositionDisplay();
+
+            // Start step counting
+            window.addEventListener('devicemotion', handleMotion);
+        });
+
+        // Function to update player position
+        function updatePlayerPositionDisplay() {
+            document.getElementById('playerPosition').textContent = playerPosition.x;
+        }
+
+        // Handle motion events for step counting
+        function handleMotion(event) {
+            const acceleration = event.accelerationIncludingGravity;
+            const deltaX = Math.abs(acceleration.x - lastAcceleration.x);
+            const deltaY = Math.abs(acceleration.y - lastAcceleration.y);
+            const deltaZ = Math.abs(acceleration.z - lastAcceleration.z);
+
+            // Check if combined movement exceeds the step threshold
+            if (deltaX + deltaY + deltaZ > stepThreshold) {
+                stepCount++;
+                playerPosition.x = stepCount; // Use step count as the player's X coordinate
+                document.getElementById('steps').textContent = `Steps: ${stepCount}`;
+                updatePlayerPositionDisplay();
+                updateSounds(sounds, playerPosition);
+            }
+
+            // Update the last acceleration values
+            lastAcceleration = acceleration;
+        }
+    </script>
+</body>
+</html>
