@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Walking Sound Fading Example</title>
+    <title>Walking Sound Fading Example with Milestone Sounds</title>
     <style>
         #controls {
             margin: 20px;
@@ -32,7 +32,7 @@
     <h1>Walking Sound Fading (Step-Driven)</h1>
     <div id="controls">
         <button id="startButton">Start Audio</button><br><br>
-        <p>Player Position (X coordinate): <span id="playerPosition">0</span></p>
+        <p>Player Pos: <span id="playerPosition">0</span></p>
         <p id="steps">Steps: 0</p>
         <div id="log"></div>
     </div>
@@ -88,7 +88,7 @@
                 this.source.loop = true; // Loop sound if needed
                 this.source.connect(this.gainNode);
                 this.source.start();
-                log(`Playing sound at position (${this.position.x}, ${this.position.y})`);
+                log(`Playing sound at position (${this.position.x})`);
             }
 
             // Update gain based on player distance
@@ -111,7 +111,7 @@
                     this.source.stop();
                     this.source.disconnect();
                     this.source = null;
-                    log(`Stopped sound at position (${this.position.x}, ${this.position.y})`);
+                    log(`Stopped sound at position (${this.position.x})`);
                 }
             }
         }
@@ -131,6 +131,30 @@
             return sounds;
         }
 
+        // Play a one-shot sound without looping or fading
+        function playOneShot(buffer) {
+            if (!buffer) {
+                log('One-shot buffer is null, cannot play sound.');
+                return;
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start();
+            log('Playing one-shot sound.');
+        }
+
+        // Check and play milestone sounds when steps reach specific values
+        function checkMilestones() {
+            milestoneSounds.forEach(milestone => {
+                if (!milestone.played && stepCount >= milestone.steps) {
+                    playOneShot(milestone.buffer);
+                    milestone.played = true; // Mark this milestone as played
+                }
+            });
+        }
+
         // Update all sounds based on player position
         function updateSounds(sounds, playerPosition) {
             sounds.forEach(sound => sound.updateGain(playerPosition));
@@ -141,13 +165,26 @@
         let sounds = [];
         let stepCount = 0;
         let lastAcceleration = { x: 0, y: 0, z: 0 };
-        const stepThreshold = 1.6; // Threshold for detecting steps (may need adjustment based on device)
+        const stepThreshold = 1.2; // Threshold for detecting steps (may need adjustment based on device)
+
+        // Milestone sounds configuration
+        const milestoneSounds = [
+            { steps: 30, url: 'https://microscopicwindow.github.io/Walker/Woman01.mp3', buffer: null, played: false },
+            { steps: 50, url: 'https://microscopicwindow.github.io/Walker/Woman02.mp3', buffer: null, played: false },
+            { steps: 400, url: 'https://microscopicwindow.github.io/Walker/Man01.mp3', buffer: null, played: false },
+            { steps: 450, url: 'https://microscopicwindow.github.io/Walker/Man02.mp3', buffer: null, played: false }
+        ];
 
         document.getElementById('startButton').addEventListener('click', async () => {
             // Resume audio context to handle autoplay restrictions
             if (audioContext.state === 'suspended') {
                 await audioContext.resume();
                 log('Audio context resumed.');
+            }
+
+            // Load one-shot sounds for milestones
+            for (let milestone of milestoneSounds) {
+                milestone.buffer = await loadSound(milestone.url);
             }
 
             const soundConfigs = [
@@ -188,6 +225,7 @@
                 document.getElementById('steps').textContent = `Steps: ${stepCount}`;
                 updatePlayerPositionDisplay();
                 updateSounds(sounds, playerPosition);
+                checkMilestones(); // Check and play milestone sounds
             }
 
             // Update the last acceleration values
